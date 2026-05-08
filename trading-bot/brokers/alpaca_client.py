@@ -32,7 +32,7 @@ class AlpacaClient:
         start = end - timedelta(days=limit * 2)  # buffer for weekends/holidays
         req = StockBarsRequest(
             symbol_or_symbols=symbol,
-            timeframe=TimeFrame.Hour,
+            timeframe=TimeFrame.Day,
             start=start,
             end=end,
             limit=limit,

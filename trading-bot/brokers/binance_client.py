@@ -18,7 +18,7 @@ class BinanceClient:
         self._exchange.set_sandbox_mode(True)
 
     def get_bars(self, symbol: str, limit: int) -> pd.DataFrame:
-        ohlcv = self._exchange.fetch_ohlcv(symbol, timeframe="1h", limit=limit)
+        ohlcv = self._exchange.fetch_ohlcv(symbol, timeframe="1d", limit=limit)
         df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
         df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms", utc=True)
         return df

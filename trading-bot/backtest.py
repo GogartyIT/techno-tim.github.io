@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Backtest: $50 starting capital, MA crossover strategy.
-Period:   May 1–8 2026  (168 hourly bars per asset)
+Period:   May 1–8 2026  (daily bars — one signal check per day)
 Data:     Synthetic price paths using Geometric Brownian Motion
           seeded from realistic May 2026 price estimates.
 
@@ -16,24 +16,24 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 
 # ── Simulation config ─────────────────────────────────────────────────────────
-START   = datetime(2026, 5, 1, 9, 30, tzinfo=timezone.utc)
-END     = datetime(2026, 5, 8, 16, 0, tzinfo=timezone.utc)
+START   = datetime(2026, 5, 1, tzinfo=timezone.utc)
+END     = datetime(2026, 5, 8, tzinfo=timezone.utc)
 CAPITAL = 50.0
 FAST_MA = 10
 SLOW_MA = 20
-WARMUP  = 50   # extra bars so MA is warm by May 1
+WARMUP  = 60   # calendar days of warmup so MA is established by May 1
 
 RNG_SEED = 42  # fixed seed → reproducible results
 
 # Realistic starting prices (estimates for early May 2026)
-# and hourly volatility (annualised vol / sqrt(8760))
+# and DAILY volatility (annualised vol / sqrt(252 trading days))
 ASSETS = {
-    #  symbol         start_price   hourly_vol    annual_drift
-    "AAPL":           (212.40,      0.0025,        0.12),
-    "TSLA":           (318.75,      0.0060,        0.18),
-    "MSFT":           (468.20,      0.0022,        0.11),
-    "BTC/USDT":       (96_800.00,   0.0080,        0.40),
-    "ETH/USDT":       (3_480.00,    0.0090,        0.35),
+    #  symbol         start_price   daily_vol   annual_drift
+    "AAPL":           (212.40,      0.0158,      0.12),
+    "TSLA":           (318.75,      0.0378,      0.18),
+    "MSFT":           (468.20,      0.0139,      0.11),
+    "BTC/USDT":       (96_800.00,   0.0504,      0.40),
+    "ETH/USDT":       (3_480.00,    0.0567,      0.35),
 }
 
 ALL_SYMBOLS = list(ASSETS.keys())
@@ -41,16 +41,26 @@ ALLOC = CAPITAL / len(ALL_SYMBOLS)
 
 # ── Synthetic price generation ────────────────────────────────────────────────
 
+STOCK_SYMBOLS  = {"AAPL", "TSLA", "MSFT"}
+WEEKEND_DAYS   = {5, 6}   # Saturday=5, Sunday=6
+
+
 def generate_bars(symbol: str, rng: np.random.Generator) -> pd.DataFrame:
     s0, sigma, drift_annual = ASSETS[symbol]
-    mu_hourly    = drift_annual / 8760
-    total_bars   = WARMUP + int((END - START).total_seconds() / 3600) + 1
-    timestamps   = [START - timedelta(hours=WARMUP - i) for i in range(total_bars)]
+    mu_daily = drift_annual / 252
+    is_stock = symbol in STOCK_SYMBOLS
 
-    returns = rng.normal(mu_hourly, sigma, total_bars)
-    prices  = s0 * np.exp(np.cumsum(returns) - returns[0])   # start exactly at s0
+    # Walk from warmup start to END, keeping valid trading days
+    warmup_start = START - timedelta(days=WARMUP * 2)   # 2x buffer absorbs weekends
+    days, d = [], warmup_start
+    while d <= END:
+        if not is_stock or d.weekday() not in WEEKEND_DAYS:
+            days.append(d)
+        d += timedelta(days=1)
 
-    return pd.DataFrame({"timestamp": timestamps, "close": prices})
+    returns = rng.normal(mu_daily, sigma, len(days))
+    prices  = s0 * np.exp(np.cumsum(returns) - returns[0])
+    return pd.DataFrame({"timestamp": days, "close": prices})
 
 
 # ── Strategy signals ──────────────────────────────────────────────────────────
@@ -73,7 +83,7 @@ def add_signals(df: pd.DataFrame) -> pd.DataFrame:
 
 def backtest_asset(symbol: str, df_full: pd.DataFrame, starting_cash: float) -> dict:
     df  = add_signals(df_full)
-    sim = df[df["timestamp"] >= START].copy().reset_index(drop=True)
+    sim = df[(df["timestamp"] >= START) & (df["timestamp"] <= END)].copy().reset_index(drop=True)
 
     cash        = starting_cash
     units       = 0.0
@@ -83,7 +93,7 @@ def backtest_asset(symbol: str, df_full: pd.DataFrame, starting_cash: float) -> 
     for _, row in sim.iterrows():
         price  = row["close"]
         sig    = row["signal"]
-        ts_str = row["timestamp"].strftime("%b %d %H:%M")
+        ts_str = row["timestamp"].strftime("%b %d")
 
         if sig == "buy" and cash > 0:
             units       = cash / price
@@ -129,7 +139,7 @@ def print_report(results: list) -> None:
 
     print()
     print("╔" + "═"*60 + "╗")
-    print("║  SIMULATED BACKTEST  ·  May 1–8 2026  ·  MA 10/20 Crossover  ║"[:62])
+    print("║  SIMULATED BACKTEST  ·  May 1–8 2026  ·  MA 10/20 Daily bars ║"[:62])
     print("║  ⚠  Synthetic price data (GBM) — for illustration only       ║"[:62])
     print("╠" + "═"*60 + "╣")
     print(f"║  Starting capital: ${CAPITAL:.2f}  ·  Equal-weight across {len(results)} assets"[:62] + " ║"[:max(0, 63 - len(f"║  Starting capital: ${CAPITAL:.2f}  ·  Equal-weight across {len(results)} assets"))])

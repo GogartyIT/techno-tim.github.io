@@ -30,4 +30,4 @@ STOCK_QTY = 1        # shares
 CRYPTO_QTY = 0.001   # BTC-sized units
 
 # --- Scheduler ---
-RUN_INTERVAL_MINUTES = 5
+RUN_INTERVAL_MINUTES = 1440   # once per day
